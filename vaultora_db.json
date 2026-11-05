@@ -1,0 +1,127 @@
+{
+  "users": [],
+  "admins": [
+    {
+      "id": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "fullName": "BeniLin",
+      "email": "benilin40@gmail.com",
+      "passwordHash": "7676f7a19aaac2442693636f519128eb7956be80beaba80019bd877a4e584b1f7d46d8134aa809b1e575c7fcf8fca3a32902b87a924dff70e26e9e66da0424f1",
+      "salt": "0b8957f25992ad2f5a67334990f7aa82",
+      "role": "Super Admin",
+      "status": "active",
+      "createdAt": "2026-10-14T23:26:48.739Z"
+    }
+  ],
+  "adminInvitations": [],
+  "deposits": [],
+  "withdrawals": [],
+  "savingsPlans": [],
+  "dailyCalculations": [],
+  "treasury": [],
+  "credits": [],
+  "auditLogs": [
+    {
+      "id": "audit_46ea10a3-c6e6-41e9-90df-b93e38e14fb9",
+      "actorType": "admin",
+      "actorId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "action": "MAINTENANCE_MODE_RESTORED",
+      "details": {
+        "previousStatus": "Maintenance",
+        "newStatus": "Online",
+        "adminEmail": "benilin40@gmail.com",
+        "adminRole": "Super Admin",
+        "reason": "System restored to online operation"
+      },
+      "timestamp": "2026-10-14T23:39:09.702Z"
+    },
+    {
+      "id": "audit_de149334-7a1b-4317-b509-b2a42e82bbf1",
+      "actorType": "admin",
+      "actorId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "action": "MAINTENANCE_MODE_ENABLED",
+      "details": {
+        "previousStatus": "Online",
+        "newStatus": "Maintenance",
+        "adminEmail": "benilin40@gmail.com",
+        "adminRole": "Super Admin",
+        "reason": "Scheduled security and UGX database reconciliation"
+      },
+      "timestamp": "2026-10-14T23:38:54.534Z"
+    },
+    {
+      "id": "audit_ea74cdd9-1d15-47cf-be1a-1758b64b310b",
+      "actorType": "admin",
+      "actorId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "action": "SAVINGS_CONFIG_UPDATED",
+      "details": {
+        "waitingPeriodDays": 2,
+        "dailyInterestRate": 0.08,
+        "minDeposit": 5000,
+        "maxDeposit": 100000000,
+        "minWithdrawal": 10000,
+        "withdrawalFeePercent": 1.5,
+        "supportedCurrencies": [
+          "UGX",
+          "USD",
+          "EUR",
+          "GBP"
+        ],
+        "maintenanceMode": false
+      },
+      "timestamp": "2026-10-14T23:28:09.750Z"
+    },
+    {
+      "id": "audit_e877eea6-26ec-4855-8f79-95d29be3c651",
+      "actorType": "admin",
+      "actorId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "action": "ADMIN_LOGIN",
+      "details": {
+        "email": "benilin40@gmail.com"
+      },
+      "timestamp": "2026-10-14T23:26:56.548Z"
+    },
+    {
+      "id": "audit_52f6dbdb-6f96-458c-9b7c-9fc836abfc55",
+      "actorType": "admin",
+      "actorId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "action": "FIRST_ADMIN_BOOTSTRAP",
+      "details": {
+        "email": "benilin40@gmail.com"
+      },
+      "timestamp": "2026-10-14T23:26:48.739Z"
+    }
+  ],
+  "settings": {
+    "waitingPeriodDays": 2,
+    "dailyInterestRate": 0.08,
+    "minDeposit": 5000,
+    "maxDeposit": 100000000,
+    "minWithdrawal": 10000,
+    "withdrawalFeePercent": 1.5,
+    "supportedCurrencies": [
+      "UGX",
+      "USD",
+      "EUR",
+      "GBP"
+    ],
+    "maintenanceMode": false,
+    "maintenanceChangedBy": "benilin40@gmail.com",
+    "maintenanceChangedAt": "2026-10-14T23:39:09.702Z",
+    "maintenanceReason": "System restored to online operation"
+  },
+  "sessions": {
+    "3df93a1e0dae9b17a0310724feae7b22e0c022dbe5dfd6d707714fe1b43ccac4": {
+      "adminId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "role": "Super Admin",
+      "email": "benilin40@gmail.com",
+      "expiresAt": 1792049208739
+    },
+    "3aac005dcfb4b0f356b2c99e643ca2de2eafc57a2ec98939c4358e3aeb5f4b0f": {
+      "adminId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "role": "Super Admin",
+      "email": "benilin40@gmail.com",
+      "expiresAt": 1792049216548
+    }
+  },
+  "supportTickets": []
+}

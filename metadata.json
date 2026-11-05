@@ -1,0 +1,6 @@
+{
+  "name": "Vaultora",
+  "description": "Vaultora — Complete Financial Savings Platform. Save smarter. Stay in control.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
