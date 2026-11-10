@@ -26,6 +26,7 @@ export const api = {
 
     const response = await fetch(endpoint, {
       ...options,
+      credentials: 'include',
       headers,
     });
 
@@ -70,6 +71,42 @@ export const api = {
     } finally {
       this.clearToken(false);
     }
+  },
+
+  async logoutAllUser() {
+    try {
+      await this.request('/api/auth/logout-all', { method: 'POST' });
+    } finally {
+      this.clearToken(false);
+    }
+  },
+
+  async forgotPassword(email: string) {
+    return this.request('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async resetPassword(payload: { token: string; newPassword: string; confirmNewPassword?: string }) {
+    return this.request('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async verifyEmail(token: string) {
+    return this.request('/api/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async resendVerificationToken(email: string) {
+    return this.request('/api/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
   },
 
   // Admin Auth & Bootstrap

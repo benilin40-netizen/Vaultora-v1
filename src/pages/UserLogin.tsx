@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, AlertCircle, Eye, EyeOff, CheckSquare, Square } from 'lucide-react';
 import { api } from '../services/api';
 
 interface UserLoginProps {
@@ -10,19 +10,22 @@ interface UserLoginProps {
 export const UserLogin: React.FC<UserLoginProps> = ({ onLoginSuccess, onNavigate }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setError('');
     setLoading(true);
     try {
-      const res = await api.loginUser({ email, password });
+      const res = await api.loginUser({ email, password, rememberMe });
       onLoginSuccess(res.user);
       onNavigate('user-dashboard');
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      setError(err.message || 'Invalid email or password.');
     } finally {
       setLoading(false);
     }
@@ -33,14 +36,14 @@ export const UserLogin: React.FC<UserLoginProps> = ({ onLoginSuccess, onNavigate
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
           <div className="w-14 h-14 rounded-2xl overflow-hidden bg-[#05090F] p-1 border border-amber-500/30 shadow-xl shadow-amber-500/10">
-            <img src="/favicon.svg" alt="Valutora Emblem" className="w-full h-full object-contain" />
+            <img src="/favicon.svg" alt="Vaultora Emblem" className="w-full h-full object-contain" />
           </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
           Sign in to Vaultora
         </h2>
         <p className="mt-2 text-center text-xs text-slate-400">
-          Save smarter. Stay in control.
+          Save smarter in UGX. Stay in total control.
         </p>
       </div>
 
@@ -72,20 +75,50 @@ export const UserLogin: React.FC<UserLoginProps> = ({ onLoginSuccess, onNavigate
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-2">Password</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-medium text-slate-300">Password</label>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('forgot-password')}
+                  className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline font-medium"
+                >
+                  Forgot password?
+                </button>
+              </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                   <Lock className="w-4 h-4 text-slate-500" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full pl-10 pr-10 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
                   placeholder="••••••••"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300 focus:outline-none"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+                <button
+                  type="button"
+                  onClick={() => setRememberMe(!rememberMe)}
+                  className="text-slate-400 hover:text-emerald-400 focus:outline-none"
+                >
+                  {rememberMe ? <CheckSquare className="w-4 h-4 text-emerald-400" /> : <Square className="w-4 h-4" />}
+                </button>
+                <span>Remember me on this device</span>
+              </label>
             </div>
 
             <button
@@ -93,8 +126,17 @@ export const UserLogin: React.FC<UserLoginProps> = ({ onLoginSuccess, onNavigate
               disabled={loading}
               className="w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
-              <ArrowRight className="w-4 h-4" />
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                  <span>Signing in...</span>
+                </>
+              ) : (
+                <>
+                  <span>Sign In</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
 
@@ -103,7 +145,7 @@ export const UserLogin: React.FC<UserLoginProps> = ({ onLoginSuccess, onNavigate
               Don't have an account?{' '}
               <button
                 onClick={() => onNavigate('user-register')}
-                className="font-semibold text-emerald-400 hover:text-emerald-300"
+                className="font-semibold text-emerald-400 hover:text-emerald-300 hover:underline"
               >
                 Create Account
               </button>

@@ -97,43 +97,54 @@ export const AdminDashboard: React.FC = () => {
   const [cfgFee, setCfgFee] = useState('1.5');
 
   const loadData = async () => {
+    let isFinished = false;
+    const failsafeTimer = setTimeout(() => {
+      if (!isFinished) {
+        isFinished = true;
+        setLoading(false);
+      }
+    }, 2500);
+
     try {
       setLoading(true);
+      const safe = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
+        promise.catch(() => fallback);
+
       const [ov, us, dep, wit, tres, cred, sav, aud, adm, ws, sec, rec, bak, diag, work, cf, spt, feat, deply, comp, dint] = await Promise.all([
-        api.getAdminOverview(),
-        api.getAdminUsers(),
-        api.getAdminDeposits(),
-        api.getAdminWithdrawals(),
-        api.getAdminTreasury(),
-        api.getAdminCredits(),
-        api.getAdminSavingsConfig(),
-        api.getAdminAuditLogs(),
-        api.getAdminAdminsList(),
-        api.getAdminWebsiteStatus(),
-        api.getAdminSecurity(),
-        api.getAdminReconciliation(),
-        api.getAdminBackupStatus(),
-        api.getAdminDiagnostics(),
-        api.getAdminWorkQueue(),
-        api.getAdminCashFlow(),
-        api.getAdminSupportTickets(),
-        api.getAdminFeatureControls(),
-        api.getAdminDeployments(),
-        api.getAdminCompliance(),
-        api.getAdminDataIntegrity(),
+        safe(api.getAdminOverview(), {}),
+        safe(api.getAdminUsers(), { users: [] }),
+        safe(api.getAdminDeposits(), { deposits: [] }),
+        safe(api.getAdminWithdrawals(), { withdrawals: [] }),
+        safe(api.getAdminTreasury(), { treasury: [], stats: { currentBalance: 0, totalDeposits: 0, totalWithdrawals: 0, transactionCount: 0 } }),
+        safe(api.getAdminCredits(), { credits: [] }),
+        safe(api.getAdminSavingsConfig(), { settings: {} }),
+        safe(api.getAdminAuditLogs(), { auditLogs: [] }),
+        safe(api.getAdminAdminsList(), { admins: [], invitations: [] }),
+        safe(api.getAdminWebsiteStatus(), { maintenanceMode: false }),
+        safe(api.getAdminSecurity(), {}),
+        safe(api.getAdminReconciliation(), {}),
+        safe(api.getAdminBackupStatus(), {}),
+        safe(api.getAdminDiagnostics(), {}),
+        safe(api.getAdminWorkQueue(), {}),
+        safe(api.getAdminCashFlow(), {}),
+        safe(api.getAdminSupportTickets(), { tickets: [] }),
+        safe(api.getAdminFeatureControls(), { features: {} }),
+        safe(api.getAdminDeployments(), {}),
+        safe(api.getAdminCompliance(), {}),
+        safe(api.getAdminDataIntegrity(), {}),
       ]);
 
       setOverviewData(ov);
-      setUsersList(us.users);
-      setDepositsList(dep.deposits);
-      setWithdrawalsList(wit.withdrawals);
-      setTreasuryList(tres.treasury);
-      setTreasuryStats(tres.stats || { currentBalance: 0, totalDeposits: 0, totalWithdrawals: 0, transactionCount: tres.treasury.length });
-      setCreditsList(cred.credits);
-      setSavingsConfig(sav.settings);
-      setAuditLogsList(aud.auditLogs);
-      setAdminsList(adm.admins);
-      setInvitationsList(adm.invitations);
+      setUsersList(us.users || []);
+      setDepositsList(dep.deposits || []);
+      setWithdrawalsList(wit.withdrawals || []);
+      setTreasuryList(tres.treasury || []);
+      setTreasuryStats(tres.stats || { currentBalance: 0, totalDeposits: 0, totalWithdrawals: 0, transactionCount: (tres.treasury || []).length });
+      setCreditsList(cred.credits || []);
+      setSavingsConfig(sav.settings || {});
+      setAuditLogsList(aud.auditLogs || []);
+      setAdminsList(adm.admins || []);
+      setInvitationsList(adm.invitations || []);
       setWebsiteStatus(ws);
       setSecurityData(sec);
       setReconciliationData(rec);
@@ -148,17 +159,21 @@ export const AdminDashboard: React.FC = () => {
       setDataIntegrityData(dint);
 
       if (sav.settings) {
-        setCfgWaiting(sav.settings.waitingPeriodDays);
-        setCfgRate(sav.settings.dailyInterestRate);
-        setCfgMinDep(sav.settings.minDeposit);
-        setCfgMaxDep(sav.settings.maxDeposit);
-        setCfgMinWith(sav.settings.minWithdrawal);
-        setCfgFee(sav.settings.withdrawalFeePercent);
+        setCfgWaiting(sav.settings.waitingPeriodDays || '2');
+        setCfgRate(sav.settings.dailyInterestRate || '0.08');
+        setCfgMinDep(sav.settings.minDeposit || '5000');
+        setCfgMaxDep(sav.settings.maxDeposit || '100000000');
+        setCfgMinWith(sav.settings.minWithdrawal || '20000');
+        setCfgFee(sav.settings.withdrawalFeePercent || '1.5');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load admin data');
     } finally {
-      setLoading(false);
+      if (!isFinished) {
+        isFinished = true;
+        clearTimeout(failsafeTimer);
+        setLoading(false);
+      }
     }
   };
 

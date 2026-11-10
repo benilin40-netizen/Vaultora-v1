@@ -59,6 +59,14 @@ export const UserDashboard: React.FC = () => {
   const [savingsPlanName, setSavingsPlanName] = useState('Vaultora UGX High-Yield Savings');
 
   const fetchDashboard = async () => {
+    let isFinished = false;
+    const failsafeTimer = setTimeout(() => {
+      if (!isFinished) {
+        isFinished = true;
+        setLoading(false);
+      }
+    }, 2500);
+
     try {
       setLoading(true);
       const [dashRes, tktRes] = await Promise.all([
@@ -70,7 +78,11 @@ export const UserDashboard: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Failed to load dashboard');
     } finally {
-      setLoading(false);
+      if (!isFinished) {
+        isFinished = true;
+        clearTimeout(failsafeTimer);
+        setLoading(false);
+      }
     }
   };
 

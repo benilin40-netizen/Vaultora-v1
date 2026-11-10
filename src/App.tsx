@@ -9,11 +9,14 @@ import { AdminSignup } from './pages/AdminSignup';
 import { AdminLogin } from './pages/AdminLogin';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { MaintenancePage } from './pages/MaintenancePage';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
 import { api } from './services/api';
-import { AlertTriangle, Power } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 export default function App() {
   const [currentRoute, setCurrentRoute] = useState<string>('landing');
+  const [resetToken, setResetToken] = useState<string>('');
   const [user, setUser] = useState<any>(null);
   const [admin, setAdmin] = useState<any>(null);
   const [systemStatus, setSystemStatus] = useState<any>(null);
@@ -31,51 +34,83 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Check active user or admin sessions and system status
+    let isFinished = false;
+
+    // Failsafe timer: Dismiss loading screen after 2 seconds max under all conditions
+    const failsafeTimer = setTimeout(() => {
+      if (!isFinished) {
+        isFinished = true;
+        setLoading(false);
+      }
+    }, 2000);
+
     const initApp = async () => {
       try {
         await fetchStatus();
 
-        if (api.getToken(false)) {
-          try {
-            const res = await api.getMe();
+        // 1. Attempt user session restoration
+        try {
+          const res = await api.getMe();
+          if (res && res.user) {
             setUser(res.user);
             setCurrentRoute('user-dashboard');
-          } catch (e: any) {
-            // If maintenance mode active or invalid token
-            api.clearToken(false);
+            return;
           }
-        } else if (api.getToken(true)) {
-          try {
-            const res = await api.getAdminMe();
+        } catch {
+          api.clearToken(false);
+        }
+
+        // 2. Attempt admin session restoration if not a normal user
+        try {
+          const res = await api.getAdminMe();
+          if (res && res.admin) {
             setAdmin(res.admin);
             setCurrentRoute('admin-dashboard');
-          } catch (e: any) {
-            api.clearToken(true);
+            return;
           }
+        } catch {
+          api.clearToken(true);
         }
       } catch (err) {
         console.error('Initialization failed:', err);
       } finally {
-        setLoading(false);
+        if (!isFinished) {
+          isFinished = true;
+          clearTimeout(failsafeTimer);
+          setLoading(false);
+        }
       }
     };
     initApp();
   }, []);
 
-  const handleNavigate = (route: string) => {
+  const handleNavigate = (routeStr: string) => {
+    let routeName = routeStr;
+    let tokenParam = '';
+
+    if (routeStr.includes('?')) {
+      const parts = routeStr.split('?');
+      routeName = parts[0];
+      const searchParams = new URLSearchParams(parts[1]);
+      tokenParam = searchParams.get('token') || '';
+    }
+
+    if (tokenParam) {
+      setResetToken(tokenParam);
+    }
+
     // Access control checks
-    if (route.startsWith('admin-') && !admin && route !== 'admin-login' && route !== 'admin-signup') {
+    if (routeName.startsWith('admin-') && !admin && routeName !== 'admin-login' && routeName !== 'admin-signup') {
       setCurrentRoute('admin-login');
       return;
     }
-    if (route === 'user-dashboard' && !user) {
+    if (routeName === 'user-dashboard' && !user) {
       setCurrentRoute('user-login');
       return;
     }
-    setCurrentRoute(route);
+
+    setCurrentRoute(routeName);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    // Re-check system status on navigation
     fetchStatus();
   };
 
@@ -93,16 +128,13 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#090D16] flex items-center justify-center text-slate-400">
-        <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin mr-3"></div>
+      <div className="min-h-screen bg-[#090D16] flex items-center justify-center text-slate-400 font-medium">
+        <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin mr-3" />
         Loading Vaultora Platform...
       </div>
     );
   }
 
-  // Maintenance mode active check:
-  // If maintenance is enabled, visitors and normal users see MaintenancePage.
-  // Admin access is preserved so administrators can log in, access the panel, and restore the site.
   const isMaintenanceActive = Boolean(systemStatus?.maintenanceMode);
   const isAdminRoute = currentRoute === 'admin-login' || currentRoute === 'admin-signup' || currentRoute === 'admin-dashboard';
   const showMaintenancePage = isMaintenanceActive && !admin && !isAdminRoute;
@@ -124,7 +156,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#090D16] text-slate-100 flex flex-col selection:bg-emerald-500/30 selection:text-emerald-300">
-      {/* Persistent Admin Maintenance Warning Banner */}
       {isMaintenanceActive && (
         <div className="bg-amber-500 text-slate-950 px-4 py-2 text-xs font-bold flex items-center justify-between sticky top-0 z-50 shadow-md">
           <div className="flex items-center gap-2 max-w-7xl mx-auto w-full justify-between">
@@ -172,6 +203,18 @@ export default function App() {
               setUser(u);
               setCurrentRoute('user-dashboard');
             }}
+            onNavigate={handleNavigate}
+          />
+        )}
+        {currentRoute === 'forgot-password' && (
+          <ForgotPassword
+            onNavigate={handleNavigate}
+            onTokenGenerated={(tok) => setResetToken(tok)}
+          />
+        )}
+        {currentRoute === 'reset-password' && (
+          <ResetPassword
+            initialToken={resetToken}
             onNavigate={handleNavigate}
           />
         )}

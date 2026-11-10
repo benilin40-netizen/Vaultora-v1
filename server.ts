@@ -43,6 +43,8 @@ interface DBschema {
   sessions: { [token: string]: { userId?: string; adminId?: string; role?: string; email: string; expiresAt: number } };
   supportTickets?: any[];
   featureToggles?: Record<string, boolean>;
+  passwordResetTokens?: any[];
+  emailVerificationTokens?: any[];
 }
 
 const defaultDb: DBschema = {
@@ -69,7 +71,9 @@ const defaultDb: DBschema = {
     maintenanceChangedAt: new Date().toISOString(),
     maintenanceReason: ''
   },
-  sessions: {}
+  sessions: {},
+  passwordResetTokens: [],
+  emailVerificationTokens: []
 };
 
 function readDb(): DBschema {
@@ -77,7 +81,13 @@ function readDb(): DBschema {
     if (fs.existsSync(DB_FILE)) {
       const data = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(data);
-      return { ...defaultDb, ...parsed, settings: { ...defaultDb.settings, ...(parsed.settings || {}) } };
+      return {
+        ...defaultDb,
+        ...parsed,
+        settings: { ...defaultDb.settings, ...(parsed.settings || {}) },
+        passwordResetTokens: parsed.passwordResetTokens || [],
+        emailVerificationTokens: parsed.emailVerificationTokens || []
+      };
     }
   } catch (err) {
     console.error('Error reading DB, using default:', err);
@@ -91,6 +101,49 @@ function writeDb(db: DBschema) {
   } catch (err) {
     console.error('Error writing DB:', err);
   }
+}
+
+// --- Cookie & Rate Limit Helpers ---
+function parseCookies(cookieHeader?: string): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!cookieHeader) return cookies;
+  cookieHeader.split(';').forEach(cookie => {
+    const parts = cookie.split('=');
+    const key = parts.shift()?.trim();
+    if (key) {
+      cookies[key] = decodeURIComponent(parts.join('=').trim());
+    }
+  });
+  return cookies;
+}
+
+function setSessionCookie(res: Response, name: string, value: string, maxAgeMs: number) {
+  const expires = new Date(Date.now() + maxAgeMs).toUTCString();
+  res.setHeader('Set-Cookie', `${name}=${encodeURIComponent(value)}; Path=/; Expires=${expires}; HttpOnly; SameSite=Lax`);
+}
+
+function clearSessionCookie(res: Response, name: string) {
+  res.setHeader('Set-Cookie', `${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; HttpOnly; SameSite=Lax`);
+}
+
+const loginAttemptsTracker: Map<string, { count: number; resetAt: number }> = new Map();
+
+function checkLoginRateLimit(key: string): { allowed: boolean; remainingSec: number } {
+  const now = Date.now();
+  const record = loginAttemptsTracker.get(key);
+  if (!record || now > record.resetAt) {
+    loginAttemptsTracker.set(key, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    return { allowed: true, remainingSec: 0 };
+  }
+  if (record.count >= 5) {
+    return { allowed: false, remainingSec: Math.ceil((record.resetAt - now) / 1000) };
+  }
+  record.count += 1;
+  return { allowed: true, remainingSec: 0 };
+}
+
+function clearLoginRateLimit(key: string) {
+  loginAttemptsTracker.delete(key);
 }
 
 // --- Password Hashing Helpers ---
@@ -120,18 +173,26 @@ function logAudit(db: DBschema, actorType: 'user' | 'admin' | 'system', actorId:
 
 // --- Auth Middleware ---
 function authenticateUser(req: Request, res: Response, next: Function) {
+  let token: string | undefined;
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else {
+    const cookies = parseCookies(req.headers.cookie);
+    token = cookies['vaultora_session'];
+  }
+
+  if (!token) {
     return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
   }
-  const token = authHeader.split(' ')[1];
+
   const db = readDb();
   const session = db.sessions[token];
   if (!session || !session.userId || session.expiresAt < Date.now()) {
     return res.status(401).json({ error: 'Unauthorized: Session expired or invalid' });
   }
   const user = db.users.find(u => u.id === session.userId);
-  if (!user || user.status === 'suspended') {
+  if (!user || user.status === 'suspended' || user.accountStatus === 'suspended') {
     return res.status(403).json({ error: 'Account suspended or not found' });
   }
   (req as any).user = user;
@@ -140,11 +201,19 @@ function authenticateUser(req: Request, res: Response, next: Function) {
 }
 
 function authenticateAdmin(req: Request, res: Response, next: Function) {
+  let token: string | undefined;
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else {
+    const cookies = parseCookies(req.headers.cookie);
+    token = cookies['vaultora_admin_session'];
+  }
+
+  if (!token) {
     return res.status(401).json({ error: 'Admin Unauthorized: Missing token' });
   }
-  const token = authHeader.split(' ')[1];
+
   const db = readDb();
   const session = db.sessions[token];
   if (!session || !session.adminId || session.expiresAt < Date.now()) {
@@ -213,68 +282,133 @@ app.get('/api/system/status', (req, res) => {
 
 // --- User Auth ---
 app.post('/api/auth/register', checkMaintenanceMode, (req, res) => {
-  const { fullName, email, password, phone, currency = 'UGX' } = req.body;
-  if (!fullName || !email || !password) {
-    return res.status(400).json({ error: 'Missing required fields' });
+  const { fullName, email, password, confirmPassword, acceptTerms, phone, currency = 'UGX' } = req.body;
+
+  if (!fullName || !fullName.trim()) {
+    return res.status(400).json({ error: 'Full Name is required.' });
   }
+
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Email Address is required.' });
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!emailRegex.test(normalizedEmail)) {
+    return res.status(400).json({ error: 'Please enter a valid email address.' });
+  }
+
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required.' });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+  }
+
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  if (!hasLetter || !hasNumber) {
+    return res.status(400).json({ error: 'Password must contain at least one letter and one number.' });
+  }
+
+  if (confirmPassword !== undefined && password !== confirmPassword) {
+    return res.status(400).json({ error: 'Passwords do not match.' });
+  }
+
+  if (acceptTerms !== undefined && acceptTerms !== true && acceptTerms !== 'true') {
+    return res.status(400).json({ error: 'You must accept the terms and conditions to register.' });
+  }
+
   const db = readDb();
-  if (db.users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
-    return res.status(400).json({ error: 'Email already registered' });
+  if (db.users.some(u => u.email.toLowerCase() === normalizedEmail)) {
+    return res.status(400).json({ error: 'An account with this email address already exists.' });
   }
+
   const { hash, salt } = hashPassword(password);
+  const nowStr = new Date().toISOString();
   const newUser = {
     id: 'user_' + crypto.randomUUID(),
-    fullName,
-    email: email.toLowerCase(),
+    fullName: fullName.trim(),
+    email: normalizedEmail,
     passwordHash: hash,
     salt,
-    phone: phone || '',
-    currency: currency || 'UGX',
+    role: 'user',
+    accountStatus: 'active',
     status: 'active',
     emailVerified: false,
-    createdAt: new Date().toISOString()
+    phone: phone ? phone.trim() : '',
+    currency: currency || 'UGX',
+    createdAt: nowStr,
+    updatedAt: nowStr,
+    lastLoginAt: nowStr
   };
+
   db.users.push(newUser);
   logAudit(db, 'user', newUser.id, 'USER_REGISTERED', { email: newUser.email, currency: newUser.currency });
-  writeDb(db);
 
+  const sessionMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
   const token = crypto.randomBytes(32).toString('hex');
   db.sessions[token] = {
     userId: newUser.id,
+    role: 'user',
     email: newUser.email,
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000
+    expiresAt: Date.now() + sessionMaxAgeMs
   };
+
   writeDb(db);
+  setSessionCookie(res, 'vaultora_session', token, sessionMaxAgeMs);
 
   const { passwordHash: _, salt: __, ...safeUser } = newUser;
-  res.json({ token, user: safeUser });
+  res.json({ success: true, token, user: safeUser });
 });
 
 app.post('/api/auth/login', checkMaintenanceMode, (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, rememberMe } = req.body;
+
   if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password required' });
+    return res.status(400).json({ error: 'Email and password are required.' });
   }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const rateLimitCheck = checkLoginRateLimit(normalizedEmail);
+  if (!rateLimitCheck.allowed) {
+    return res.status(429).json({
+      error: `Too many failed login attempts. Please try again in ${Math.ceil(rateLimitCheck.remainingSec / 60)} minutes.`
+    });
+  }
+
   const db = readDb();
-  const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+  const user = db.users.find(u => u.email.toLowerCase() === normalizedEmail);
+
   if (!user || !verifyPassword(password, user.passwordHash, user.salt)) {
-    return res.status(401).json({ error: 'Invalid email or password' });
+    return res.status(401).json({ error: 'Invalid email or password.' });
   }
-  if (user.status === 'suspended') {
+
+  if (user.status === 'suspended' || user.accountStatus === 'suspended') {
     return res.status(403).json({ error: 'Your account has been suspended. Please contact support.' });
   }
 
+  clearLoginRateLimit(normalizedEmail);
+
+  user.lastLoginAt = new Date().toISOString();
+  user.updatedAt = new Date().toISOString();
+
+  const sessionMaxAgeMs = (rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000;
   const token = crypto.randomBytes(32).toString('hex');
   db.sessions[token] = {
     userId: user.id,
+    role: user.role || 'user',
     email: user.email,
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000
+    expiresAt: Date.now() + sessionMaxAgeMs
   };
+
   logAudit(db, 'user', user.id, 'USER_LOGIN', { email: user.email });
   writeDb(db);
+  setSessionCookie(res, 'vaultora_session', token, sessionMaxAgeMs);
 
   const { passwordHash: _, salt: __, ...safeUser } = user;
-  res.json({ token, user: safeUser });
+  res.json({ success: true, token, user: safeUser });
 });
 
 app.get('/api/auth/me', checkMaintenanceMode, authenticateUser, (req: any, res) => {
@@ -283,13 +417,215 @@ app.get('/api/auth/me', checkMaintenanceMode, authenticateUser, (req: any, res) 
 });
 
 app.post('/api/auth/logout', (req: any, res) => {
-  const token = req.sessionToken;
+  let token: string | undefined = req.sessionToken;
+  if (!token) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else {
+      const cookies = parseCookies(req.headers.cookie);
+      token = cookies['vaultora_session'];
+    }
+  }
+
   if (token) {
     const db = readDb();
     delete db.sessions[token];
     writeDb(db);
   }
-  res.json({ success: true });
+
+  clearSessionCookie(res, 'vaultora_session');
+  res.json({ success: true, message: 'Logged out successfully.' });
+});
+
+app.post('/api/auth/logout-all', authenticateUser, (req: any, res) => {
+  const db = readDb();
+  const userId = req.user.id;
+
+  Object.keys(db.sessions).forEach(tokenKey => {
+    if (db.sessions[tokenKey].userId === userId) {
+      delete db.sessions[tokenKey];
+    }
+  });
+
+  logAudit(db, 'user', userId, 'USER_LOGOUT_ALL_DEVICES', { email: req.user.email });
+  writeDb(db);
+  clearSessionCookie(res, 'vaultora_session');
+  res.json({ success: true, message: 'Logged out from all devices successfully.' });
+});
+
+app.post('/api/auth/forgot-password', checkMaintenanceMode, (req, res) => {
+  const { email } = req.body;
+  const genericMsg = 'If an account with that email address exists, password reset instructions have been sent.';
+
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Email address is required.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const db = readDb();
+  const user = db.users.find(u => u.email.toLowerCase() === normalizedEmail);
+
+  let resetTokenRaw: string | undefined;
+
+  if (user) {
+    resetTokenRaw = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(resetTokenRaw).digest('hex');
+
+    if (!db.passwordResetTokens) db.passwordResetTokens = [];
+    db.passwordResetTokens.push({
+      id: 'prt_' + crypto.randomUUID(),
+      userId: user.id,
+      tokenHash,
+      expiresAt: Date.now() + 60 * 60 * 1000, // 1 hour
+      used: false,
+      createdAt: new Date().toISOString()
+    });
+
+    logAudit(db, 'user', user.id, 'PASSWORD_RESET_REQUESTED', { email: user.email });
+    writeDb(db);
+  }
+
+  res.json({
+    success: true,
+    message: genericMsg,
+    resetToken: resetTokenRaw
+  });
+});
+
+app.post('/api/auth/reset-password', checkMaintenanceMode, (req, res) => {
+  const { token, newPassword, confirmNewPassword } = req.body;
+
+  if (!token || !token.trim()) {
+    return res.status(400).json({ error: 'Reset token is required.' });
+  }
+
+  if (!newPassword) {
+    return res.status(400).json({ error: 'New password is required.' });
+  }
+
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
+  }
+
+  const hasLetter = /[a-zA-Z]/.test(newPassword);
+  const hasNumber = /[0-9]/.test(newPassword);
+  if (!hasLetter || !hasNumber) {
+    return res.status(400).json({ error: 'New password must contain at least one letter and one number.' });
+  }
+
+  if (confirmNewPassword !== undefined && newPassword !== confirmNewPassword) {
+    return res.status(400).json({ error: 'Passwords do not match.' });
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+  const db = readDb();
+
+  if (!db.passwordResetTokens) db.passwordResetTokens = [];
+  const resetRecord = db.passwordResetTokens.find(
+    r => r.tokenHash === tokenHash && !r.used && r.expiresAt > Date.now()
+  );
+
+  if (!resetRecord) {
+    return res.status(400).json({ error: 'Invalid or expired password reset token.' });
+  }
+
+  const user = db.users.find(u => u.id === resetRecord.userId);
+  if (!user) {
+    return res.status(400).json({ error: 'Associated user account not found.' });
+  }
+
+  const { hash, salt } = hashPassword(newPassword);
+  user.passwordHash = hash;
+  user.salt = salt;
+  user.updatedAt = new Date().toISOString();
+
+  resetRecord.used = true;
+
+  // Revoke all sessions for security
+  Object.keys(db.sessions).forEach(tokKey => {
+    if (db.sessions[tokKey].userId === user.id) {
+      delete db.sessions[tokKey];
+    }
+  });
+
+  logAudit(db, 'user', user.id, 'PASSWORD_RESET_COMPLETED', { email: user.email });
+  writeDb(db);
+
+  res.json({ success: true, message: 'Password has been reset successfully. Please sign in with your new password.' });
+});
+
+app.post('/api/auth/verify-email', checkMaintenanceMode, (req, res) => {
+  const { token } = req.body;
+  if (!token || !token.trim()) {
+    return res.status(400).json({ error: 'Verification token is required.' });
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+  const db = readDb();
+
+  if (!db.emailVerificationTokens) db.emailVerificationTokens = [];
+  const verificationRecord = db.emailVerificationTokens.find(
+    v => v.tokenHash === tokenHash && !v.used && v.expiresAt > Date.now()
+  );
+
+  if (!verificationRecord) {
+    return res.status(400).json({ error: 'Invalid or expired email verification token.' });
+  }
+
+  const user = db.users.find(u => u.id === verificationRecord.userId);
+  if (!user) {
+    return res.status(400).json({ error: 'User account not found.' });
+  }
+
+  user.emailVerified = true;
+  user.updatedAt = new Date().toISOString();
+  verificationRecord.used = true;
+
+  logAudit(db, 'user', user.id, 'EMAIL_VERIFIED', { email: user.email });
+  writeDb(db);
+
+  res.json({ success: true, message: 'Email address verified successfully.' });
+});
+
+app.post('/api/auth/resend-verification', checkMaintenanceMode, (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Email address is required.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const db = readDb();
+  const user = db.users.find(u => u.email.toLowerCase() === normalizedEmail);
+
+  if (!user) {
+    return res.json({ success: true, message: 'If an account exists with that email, a verification link has been sent.' });
+  }
+
+  if (user.emailVerified) {
+    return res.json({ success: true, message: 'Your email address is already verified.' });
+  }
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+  if (!db.emailVerificationTokens) db.emailVerificationTokens = [];
+  db.emailVerificationTokens.push({
+    id: 'evt_' + crypto.randomUUID(),
+    userId: user.id,
+    tokenHash,
+    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    used: false,
+    createdAt: new Date().toISOString()
+  });
+
+  writeDb(db);
+
+  res.json({
+    success: true,
+    message: 'Verification link sent successfully.',
+    verificationToken: rawToken
+  });
 });
 
 // --- Admin Auth & Bootstrap ---
