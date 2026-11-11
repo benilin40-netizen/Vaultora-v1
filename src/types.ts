@@ -245,3 +245,16 @@ export interface SystemHealthInfo {
   timestamp: string;
 }
 
+export interface DashboardStats {
+  originalPrincipal: number;
+  availableBalance: number;
+  reservedFunds: number;
+  activeSavings: number;
+  pendingSavings?: number;
+  savingsEarnings: number;
+  fundedBonuses?: number;
+  pendingDepositsCount?: number;
+  pendingWithdrawalsCount?: number;
+  nextEligibleCalculationDate?: string;
+}
+

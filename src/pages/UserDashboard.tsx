@@ -338,10 +338,15 @@ export const UserDashboard: React.FC = () => {
           </div>
 
           <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800">
-            <p className="text-xs font-medium text-slate-400 mb-1">Active Savings (8%)</p>
-            <h3 className="text-xl sm:text-2xl font-bold text-teal-400">{formatUGX(stats.activeSavings || 0)}</h3>
-            <p className="text-xs text-slate-400 mt-2 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-amber-400" /> +{formatUGX(stats.savingsEarnings || 0)} Earned
+            <p className="text-xs font-medium text-slate-400 mb-1">Savings Plans (8% Daily)</p>
+            <h3 className="text-xl sm:text-2xl font-bold text-teal-400">{formatUGX((stats.activeSavings || 0) + (stats.pendingSavings || 0))}</h3>
+            <p className="text-xs text-slate-400 mt-2 flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-amber-400" /> +{formatUGX(stats.savingsEarnings || 0)} Earned
+              </span>
+              {(stats.pendingSavings || 0) > 0 && (
+                <span className="text-[10px] text-amber-400/90 font-medium">({formatUGX(stats.pendingSavings || 0)} in waiting)</span>
+              )}
             </p>
           </div>
 

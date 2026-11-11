@@ -32,6 +32,11 @@ app.use((req: Request, res: Response, next: Function) => {
 
 // Normalize incoming request path for serverless / reverse-proxy rewrites
 app.use((req: Request, res: Response, next: Function) => {
+  const forwardedUri = (req.headers['x-forwarded-uri'] as string) || (req.headers['x-matched-path'] as string);
+  if (forwardedUri && forwardedUri.startsWith('/api') && req.url !== forwardedUri) {
+    req.url = forwardedUri;
+  }
+
   if (!req.url.startsWith('/api') && (
     req.url.startsWith('/auth') ||
     req.url.startsWith('/user') ||
@@ -863,15 +868,23 @@ app.get('/api/user/dashboard', checkMaintenanceMode, authenticateUser, (req: any
 
   const creditsTotal = userCredits.reduce((sum: number, c: any) => sum + c.amount, 0);
 
+  const committedSavingsTotal = userSavings
+    .filter((s: any) => s.status === 'active' || s.status === 'pending_waiting')
+    .reduce((sum: number, s: any) => sum + s.amount, 0);
+
   const activeSavingsTotal = userSavings
     .filter((s: any) => s.status === 'active')
+    .reduce((sum: number, s: any) => sum + s.amount, 0);
+
+  const pendingSavingsTotal = userSavings
+    .filter((s: any) => s.status === 'pending_waiting')
     .reduce((sum: number, s: any) => sum + s.amount, 0);
 
   const completedWithdrawalsTotal = userWithdrawals
     .filter((w: any) => w.status === 'completed' || w.status === 'approved' || w.status === 'pending')
     .reduce((sum: number, w: any) => sum + w.amount, 0);
 
-  const availableBalance = Math.max(0, confirmedDepositsTotal + creditsTotal - activeSavingsTotal - completedWithdrawalsTotal);
+  const availableBalance = Math.max(0, confirmedDepositsTotal + creditsTotal - committedSavingsTotal - completedWithdrawalsTotal);
   const reservedFunds = userWithdrawals
     .filter((w: any) => w.status === 'pending' || w.status === 'approved')
     .reduce((sum: number, w: any) => sum + w.amount, 0);
@@ -885,6 +898,7 @@ app.get('/api/user/dashboard', checkMaintenanceMode, authenticateUser, (req: any
       availableBalance,
       reservedFunds,
       activeSavings: activeSavingsTotal,
+      pendingSavings: pendingSavingsTotal,
       savingsEarnings,
       fundedBonuses: creditsTotal,
       pendingDepositsCount: userDeposits.filter((d: any) => d.status === 'pending').length,
@@ -910,6 +924,26 @@ app.post('/api/user/deposits', checkMaintenanceMode, authenticateUser, (req: any
     return res.status(400).json({ error: `The minimum deposit is UGX 5,000.` });
   }
 
+  // Prevent duplicate transaction references
+  const cleanRef = reference && typeof reference === 'string' ? reference.trim() : null;
+  if (cleanRef) {
+    const isDuplicate = db.deposits.some((d: any) => d.reference && d.reference.toLowerCase() === cleanRef.toLowerCase());
+    if (isDuplicate) {
+      return res.status(400).json({ error: 'A deposit with this transaction reference has already been submitted.' });
+    }
+  }
+
+  // Rate-limit rapid identical deposit submissions from same user (within 5 seconds)
+  const recentDuplicate = db.deposits.find((d: any) => 
+    d.userId === req.user.id && 
+    d.amount === numAmount && 
+    d.status === 'pending' &&
+    (Date.now() - new Date(d.createdAt).getTime()) < 5000
+  );
+  if (recentDuplicate) {
+    return res.status(429).json({ error: 'Duplicate deposit detected. Please wait a moment before submitting again.' });
+  }
+
   const newDeposit = {
     id: 'dep_' + crypto.randomUUID(),
     userId: req.user.id,
@@ -918,7 +952,7 @@ app.post('/api/user/deposits', checkMaintenanceMode, authenticateUser, (req: any
     amount: numAmount,
     currency: currency || req.user.currency || 'UGX',
     paymentMethod: paymentMethod || 'MTN Mobile Money / Airtel Money',
-    reference: reference || 'UGX-TX-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
+    reference: cleanRef || 'UGX-TX-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
     status: 'pending',
     createdAt: new Date().toISOString(),
     reviewedBy: null,
@@ -943,10 +977,21 @@ app.post('/api/user/withdrawals', checkMaintenanceMode, authenticateUser, (req: 
     return res.status(400).json({ error: `Minimum withdrawal is ${db.settings.minWithdrawal.toLocaleString()} UGX` });
   }
 
+  // Rate-limit rapid identical withdrawal submissions from same user (within 5 seconds)
+  const recentDupWithdrawal = db.withdrawals.find((w: any) => 
+    w.userId === req.user.id && 
+    w.amount === numAmount && 
+    w.status === 'pending' &&
+    (Date.now() - new Date(w.createdAt).getTime()) < 5000
+  );
+  if (recentDupWithdrawal) {
+    return res.status(429).json({ error: 'Duplicate withdrawal request detected. Please wait before submitting again.' });
+  }
+
   const userId = req.user.id;
   const userDeposits = db.deposits.filter((d: any) => d.userId === userId && d.status === 'confirmed');
   const userCredits = db.credits.filter((c: any) => c.userId === userId);
-  const userSavings = db.savingsPlans.filter((s: any) => s.userId === userId && s.status === 'active');
+  const userSavings = db.savingsPlans.filter((s: any) => s.userId === userId && ['active', 'pending_waiting'].includes(s.status));
   const userWithdrawals = db.withdrawals.filter((w: any) => w.userId === userId);
 
   const totalIn = userDeposits.reduce((s: number, d: any) => s + d.amount, 0) + userCredits.reduce((s: number, c: any) => s + c.amount, 0);
@@ -993,19 +1038,29 @@ app.post('/api/user/savings', checkMaintenanceMode, authenticateUser, (req: any,
   const db = readDb();
   const userId = req.user.id;
 
+  const minSavings = db.settings.minDeposit || 5000;
+  if (numAmount < minSavings) {
+    return res.status(400).json({ error: 'The minimum amount required to start a savings plan is UGX 5,000.' });
+  }
+
+  // Prevent duplicate rapid savings allocations (within 5 seconds)
+  const recentDupSavings = db.savingsPlans.find((s: any) => 
+    s.userId === userId && 
+    s.amount === numAmount && 
+    (Date.now() - new Date(s.createdAt).getTime()) < 5000
+  );
+  if (recentDupSavings) {
+    return res.status(429).json({ error: 'Duplicate savings plan request detected. Please wait a moment.' });
+  }
+
   const userDeposits = db.deposits.filter((d: any) => d.userId === userId && d.status === 'confirmed');
   const userCredits = db.credits.filter((c: any) => c.userId === userId);
-  const userSavings = db.savingsPlans.filter((s: any) => s.userId === userId && s.status === 'active');
+  const userSavings = db.savingsPlans.filter((s: any) => s.userId === userId && ['active', 'pending_waiting'].includes(s.status));
   const userWithdrawals = db.withdrawals.filter((w: any) => w.userId === userId);
 
   const totalIn = userDeposits.reduce((s: number, d: any) => s + d.amount, 0) + userCredits.reduce((s: number, c: any) => s + c.amount, 0);
   const totalOutOrReserved = userSavings.reduce((s: number, sv: any) => s + sv.amount, 0) + userWithdrawals.filter((w: any) => ['pending', 'approved', 'completed'].includes(w.status)).reduce((s: number, w: any) => s + w.amount, 0);
   const availableBalance = Math.max(0, totalIn - totalOutOrReserved);
-
-  const minSavings = db.settings.minDeposit || 5000;
-  if (numAmount < minSavings) {
-    return res.status(400).json({ error: 'The minimum amount required to start a savings plan is UGX 5,000.' });
-  }
 
   if (numAmount > availableBalance) {
     return res.status(400).json({ error: 'Insufficient available balance to allocate into savings' });

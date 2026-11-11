@@ -21,6 +21,93 @@
   "credits": [],
   "auditLogs": [
     {
+      "id": "audit_c13084e9-2ccc-4d70-8f50-579ca8066a66",
+      "actorType": "user",
+      "actorId": "user_5f6551b0-79ee-468c-a71a-1e49732f3c38",
+      "action": "USER_LOGIN",
+      "details": {
+        "email": "test_1794358042471@vaultora.test"
+      },
+      "timestamp": "2026-11-11T00:47:22.591Z"
+    },
+    {
+      "id": "audit_4807d415-80d4-4b0f-bfe7-6ec4e20ece42",
+      "actorType": "user",
+      "actorId": "user_5f6551b0-79ee-468c-a71a-1e49732f3c38",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "test_1794358042471@vaultora.test",
+        "currency": "UGX"
+      },
+      "timestamp": "2026-11-11T00:47:22.570Z"
+    },
+    {
+      "id": "audit_aa865e04-ddba-4e5f-8745-6e331e3f7b92",
+      "actorType": "user",
+      "actorId": "user_035b8a2b-dfe4-4321-b8f0-e053fe092bf5",
+      "action": "SAVINGS_PLAN_CREATED",
+      "details": {
+        "planId": "sav_761f28d7-b589-45a3-a64c-538e0fbf28be",
+        "amount": 5000
+      },
+      "timestamp": "2026-11-11T00:47:19.620Z"
+    },
+    {
+      "id": "audit_28ce9798-8257-4633-92d6-d78b4e6eb2a5",
+      "actorType": "user",
+      "actorId": "user_035b8a2b-dfe4-4321-b8f0-e053fe092bf5",
+      "action": "DEPOSIT_REQUESTED",
+      "details": {
+        "depositId": "dep_9471465d-b30d-4aaf-8abd-c1f688f74fbf",
+        "amount": 5000
+      },
+      "timestamp": "2026-11-11T00:47:19.585Z"
+    },
+    {
+      "id": "audit_ad03a246-a019-44fc-a823-9e5abdd5736c",
+      "actorType": "user",
+      "actorId": "user_035b8a2b-dfe4-4321-b8f0-e053fe092bf5",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "fin_test_1794358039439@vaultora.test",
+        "currency": "UGX"
+      },
+      "timestamp": "2026-11-11T00:47:19.560Z"
+    },
+    {
+      "id": "audit_564a6f9c-d7c9-4208-9c28-11bf3e11c8bf",
+      "actorType": "user",
+      "actorId": "user_fdcff19c-7239-4801-a297-35a65f416367",
+      "action": "SAVINGS_PLAN_CREATED",
+      "details": {
+        "planId": "sav_a14b4348-10d9-40c8-83ae-54da54612b3f",
+        "amount": 5000
+      },
+      "timestamp": "2026-11-11T00:45:54.585Z"
+    },
+    {
+      "id": "audit_d8510bfe-5993-42b1-8904-1a2ed8043972",
+      "actorType": "user",
+      "actorId": "user_fdcff19c-7239-4801-a297-35a65f416367",
+      "action": "DEPOSIT_REQUESTED",
+      "details": {
+        "depositId": "dep_dca93ec4-019b-4226-ae86-1dd281bbda44",
+        "amount": 5000
+      },
+      "timestamp": "2026-11-11T00:45:54.559Z"
+    },
+    {
+      "id": "audit_3ff0380e-e252-47d9-af0c-7839822b5027",
+      "actorType": "user",
+      "actorId": "user_fdcff19c-7239-4801-a297-35a65f416367",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "fin_test_1794357954410@vaultora.test",
+        "currency": "UGX"
+      },
+      "timestamp": "2026-11-11T00:45:54.529Z"
+    },
+    {
       "id": "audit_b8f973da-f691-435a-be88-4257aa23577f",
       "actorType": "user",
       "actorId": "user_50d2ae4f-619d-46db-8cff-5f315ae73532",
