@@ -7,11 +7,11 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/server.ts"
+      "destination": "/api"
     },
     {
       "source": "/(.*)",
-      "destination": "/server.ts"
+      "destination": "/index.html"
     }
   ]
 }

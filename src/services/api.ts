@@ -1,6 +1,90 @@
 const TOKEN_KEY = 'vaultora_token';
 const ADMIN_TOKEN_KEY = 'vaultora_admin_token';
 
+/**
+ * Centralized API request utility that safely handles:
+ * - Setting Accept: application/json and Content-Type: application/json headers
+ * - Attaching Bearer tokens when available
+ * - Credentials inclusion for secure HTTP-only cookies
+ * - Validating Content-Type before parsing JSON
+ * - Preventing 'Unexpected token' syntax errors when servers return HTML/text
+ * - Extracting clean error messages from non-JSON responses
+ * - Returning typed JSON data
+ */
+export async function apiRequest<T = any>(
+  url: string,
+  options: RequestInit = {},
+  isAdmin = false
+): Promise<T> {
+  const token = api.getToken(isAdmin);
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...((options.headers as Record<string, string>) || {}),
+  };
+
+  // Ensure JSON Content-Type for mutation methods if body is a string
+  if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  } else if (!headers['Content-Type'] && options.method && options.method !== 'GET' && options.method !== 'HEAD') {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (token && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      credentials: 'include',
+      headers,
+    });
+  } catch (networkError: any) {
+    throw new Error(
+      `Network connection failed: ${networkError.message || 'Unable to reach the server.'}`
+    );
+  }
+
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const rawBody = await response.text();
+
+  // If no content returned (e.g. 204 No Content or empty string)
+  if (!rawBody || !rawBody.trim()) {
+    if (!response.ok) {
+      throw new Error(`API request failed with status ${response.status}.`);
+    }
+    return {} as T;
+  }
+
+  // If response is NOT JSON (e.g. HTML 404, Vercel routing fallback, plain text error)
+  if (!contentType.includes('application/json')) {
+    const cleanSnippet = rawBody
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 160);
+
+    throw new Error(
+      `API returned an unexpected response (${response.status}): ${cleanSnippet || 'Non-JSON response received'}`
+    );
+  }
+
+  let data: any;
+  try {
+    data = JSON.parse(rawBody);
+  } catch {
+    throw new Error('The server returned malformed JSON.');
+  }
+
+  if (!response.ok) {
+    const errorMsg = data.message || data.error || `API request failed with status ${response.status}.`;
+    throw new Error(errorMsg);
+  }
+
+  return data as T;
+}
+
 export const api = {
   getToken(isAdmin = false): string | null {
     return localStorage.getItem(isAdmin ? ADMIN_TOKEN_KEY : TOKEN_KEY);
@@ -15,26 +99,7 @@ export const api = {
   },
 
   async request(endpoint: string, options: RequestInit = {}, isAdmin = false) {
-    const token = this.getToken(isAdmin);
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...((options.headers as Record<string, string>) || {}),
-    };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(endpoint, {
-      ...options,
-      credentials: 'include',
-      headers,
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'An unexpected error occurred');
-    }
-    return data;
+    return apiRequest(endpoint, options, isAdmin);
   },
 
   // Health
@@ -42,7 +107,7 @@ export const api = {
     return this.request('/api/health');
   },
 
-  // Auth User
+  // Auth User - Supports register, signup, login, logout, me
   async registerUser(payload: any) {
     const res = await this.request('/api/auth/register', {
       method: 'POST',
@@ -50,6 +115,19 @@ export const api = {
     });
     if (res.token) this.setToken(res.token, false);
     return res;
+  },
+
+  async signupUser(payload: any) {
+    const res = await this.request('/api/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (res.token) this.setToken(res.token, false);
+    return res;
+  },
+
+  async signup(payload: any) {
+    return this.signupUser(payload);
   },
 
   async loginUser(payload: any) {
@@ -61,8 +139,16 @@ export const api = {
     return res;
   },
 
+  async login(payload: any) {
+    return this.loginUser(payload);
+  },
+
   async getMe() {
     return this.request('/api/auth/me');
+  },
+
+  async me() {
+    return this.getMe();
   },
 
   async logoutUser() {
@@ -71,6 +157,10 @@ export const api = {
     } finally {
       this.clearToken(false);
     }
+  },
+
+  async logout() {
+    return this.logoutUser();
   },
 
   async logoutAllUser() {

@@ -281,19 +281,21 @@ app.get('/api/system/status', (req, res) => {
 });
 
 // --- User Auth ---
-app.post('/api/auth/register', checkMaintenanceMode, (req, res) => {
-  const { fullName, email, password, confirmPassword, acceptTerms, phone, currency = 'UGX' } = req.body;
+// User Registration Handler (Shared by /api/auth/register and /api/auth/signup)
+const handleUserRegister = (req: Request, res: Response) => {
+  const fullName = req.body.fullName || req.body.name;
+  const { email, password, confirmPassword, acceptTerms, phone, currency = 'UGX' } = req.body;
 
-  if (!fullName || !fullName.trim()) {
+  if (!fullName || !String(fullName).trim()) {
     return res.status(400).json({ error: 'Full Name is required.' });
   }
 
-  if (!email || !email.trim()) {
+  if (!email || !String(email).trim()) {
     return res.status(400).json({ error: 'Email Address is required.' });
   }
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = String(email).trim().toLowerCase();
   if (!emailRegex.test(normalizedEmail)) {
     return res.status(400).json({ error: 'Please enter a valid email address.' });
   }
@@ -302,7 +304,7 @@ app.post('/api/auth/register', checkMaintenanceMode, (req, res) => {
     return res.status(400).json({ error: 'Password is required.' });
   }
 
-  if (password.length < 8) {
+  if (String(password).length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
   }
 
@@ -329,7 +331,7 @@ app.post('/api/auth/register', checkMaintenanceMode, (req, res) => {
   const nowStr = new Date().toISOString();
   const newUser = {
     id: 'user_' + crypto.randomUUID(),
-    fullName: fullName.trim(),
+    fullName: String(fullName).trim(),
     email: normalizedEmail,
     passwordHash: hash,
     salt,
@@ -337,7 +339,7 @@ app.post('/api/auth/register', checkMaintenanceMode, (req, res) => {
     accountStatus: 'active',
     status: 'active',
     emailVerified: false,
-    phone: phone ? phone.trim() : '',
+    phone: phone ? String(phone).trim() : '',
     currency: currency || 'UGX',
     createdAt: nowStr,
     updatedAt: nowStr,
@@ -361,7 +363,10 @@ app.post('/api/auth/register', checkMaintenanceMode, (req, res) => {
 
   const { passwordHash: _, salt: __, ...safeUser } = newUser;
   res.json({ success: true, token, user: safeUser });
-});
+};
+
+app.post('/api/auth/register', checkMaintenanceMode, handleUserRegister);
+app.post('/api/auth/signup', checkMaintenanceMode, handleUserRegister);
 
 app.post('/api/auth/login', checkMaintenanceMode, (req, res) => {
   const { email, password, rememberMe } = req.body;
@@ -1744,6 +1749,31 @@ app.post('/api/admin/data-integrity/run', authenticateAdmin, (req: any, res) => 
 
 
 // ==========================================
+// API 404 & Error Handling (Guarantees JSON responses)
+// ==========================================
+
+// Catch-all for any unmatched /api/* routes to prevent HTML/SPA fallback
+app.all('/api/*', (req: Request, res: Response) => {
+  res.status(404).json({
+    error: `API endpoint ${req.method} ${req.path} not found`,
+    status: 404,
+    path: req.path
+  });
+});
+
+// Global error handler for /api/* routes (Guarantees structured JSON 500)
+app.use((err: any, req: Request, res: Response, next: Function) => {
+  if (req.path.startsWith('/api') || req.originalUrl.startsWith('/api')) {
+    console.error('API Error:', err);
+    return res.status(err.status || 500).json({
+      error: err.message || 'Internal server error',
+      status: err.status || 500
+    });
+  }
+  next(err);
+});
+
+// ==========================================
 // Vite Middleware & Server Boot
 // ==========================================
 
@@ -1804,5 +1834,11 @@ async function startServer() {
   });
 }
 
-startServer();
+// In local / container / dev mode, start server; on Vercel serverless, app is exported
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
+export { app };
 
