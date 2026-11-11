@@ -21,6 +21,48 @@
   "credits": [],
   "auditLogs": [
     {
+      "id": "audit_b8f973da-f691-435a-be88-4257aa23577f",
+      "actorType": "user",
+      "actorId": "user_50d2ae4f-619d-46db-8cff-5f315ae73532",
+      "action": "USER_LOGIN",
+      "details": {
+        "email": "test_1794356387975@vaultora.test"
+      },
+      "timestamp": "2026-11-11T00:19:48.108Z"
+    },
+    {
+      "id": "audit_b20b31b1-e467-419c-bf2b-ce1d407e1ce2",
+      "actorType": "user",
+      "actorId": "user_50d2ae4f-619d-46db-8cff-5f315ae73532",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "test_1794356387975@vaultora.test",
+        "currency": "UGX"
+      },
+      "timestamp": "2026-11-11T00:19:48.087Z"
+    },
+    {
+      "id": "audit_4923dc7a-c31f-43b3-afc9-2124dd0feeda",
+      "actorType": "user",
+      "actorId": "user_fca9f42e-8865-4dcc-89a9-c7ea8ae2377e",
+      "action": "USER_LOGIN",
+      "details": {
+        "email": "test_1794356352811@vaultora.test"
+      },
+      "timestamp": "2026-11-11T00:19:12.961Z"
+    },
+    {
+      "id": "audit_e7da49e4-3a4a-4856-b34e-852481f651ca",
+      "actorType": "user",
+      "actorId": "user_fca9f42e-8865-4dcc-89a9-c7ea8ae2377e",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "test_1794356352811@vaultora.test",
+        "currency": "UGX"
+      },
+      "timestamp": "2026-11-11T00:19:12.936Z"
+    },
+    {
       "id": "audit_46ea10a3-c6e6-41e9-90df-b93e38e14fb9",
       "actorType": "admin",
       "actorId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",

@@ -15,6 +15,35 @@ const DB_FILE = path.resolve(process.cwd(), 'vaultora_db.json');
 const app = express();
 app.use(express.json());
 
+// CORS & Preflight Handling for Cross-Origin or Custom Domain Deployments
+app.use((req: Request, res: Response, next: Function) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
+// Normalize incoming request path for serverless / reverse-proxy rewrites
+app.use((req: Request, res: Response, next: Function) => {
+  if (!req.url.startsWith('/api') && (
+    req.url.startsWith('/auth') ||
+    req.url.startsWith('/user') ||
+    req.url.startsWith('/admin') ||
+    req.url.startsWith('/system') ||
+    req.url === '/health'
+  )) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
 // --- Database & Persistence ---
 interface DBschema {
   users: any[];
@@ -76,30 +105,75 @@ const defaultDb: DBschema = {
   emailVerificationTokens: []
 };
 
+// Resilient database resolver: supports persistent disk and serverless writable /tmp
+function getDbFilePath(): string {
+  if (process.env.VAULTORA_DB_PATH) {
+    return path.resolve(process.env.VAULTORA_DB_PATH);
+  }
+
+  // Detect serverless environment (Vercel / AWS Lambda / Netlify)
+  const isServerless = Boolean(process.env.VERCEL) || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) || Boolean(process.env.LAMBDA_TASK_ROOT);
+  if (isServerless) {
+    const tmpDb = path.resolve('/tmp', 'vaultora_db.json');
+    if (!fs.existsSync(tmpDb)) {
+      try {
+        const rootDb = path.resolve(process.cwd(), 'vaultora_db.json');
+        if (fs.existsSync(rootDb)) {
+          fs.copyFileSync(rootDb, tmpDb);
+        } else {
+          fs.writeFileSync(tmpDb, JSON.stringify(defaultDb, null, 2), 'utf-8');
+        }
+      } catch (err) {
+        console.warn('Failed to seed /tmp/vaultora_db.json from bundled file:', err);
+      }
+    }
+    return tmpDb;
+  }
+
+  return path.resolve(process.cwd(), 'vaultora_db.json');
+}
+
+let memoryDbCache: DBschema | null = null;
+
 function readDb(): DBschema {
+  const filePath = getDbFilePath();
   try {
-    if (fs.existsSync(DB_FILE)) {
-      const data = fs.readFileSync(DB_FILE, 'utf-8');
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(data);
-      return {
+      const merged = {
         ...defaultDb,
         ...parsed,
         settings: { ...defaultDb.settings, ...(parsed.settings || {}) },
         passwordResetTokens: parsed.passwordResetTokens || [],
         emailVerificationTokens: parsed.emailVerificationTokens || []
       };
+      memoryDbCache = merged;
+      return merged;
     }
   } catch (err) {
-    console.error('Error reading DB, using default:', err);
+    console.error('Error reading DB, using fallback:', err);
+  }
+
+  if (memoryDbCache) {
+    return memoryDbCache;
   }
   return JSON.parse(JSON.stringify(defaultDb));
 }
 
 function writeDb(db: DBschema) {
+  memoryDbCache = db;
+  const filePath = getDbFilePath();
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
+    fs.writeFileSync(filePath, JSON.stringify(db, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Error writing DB:', err);
+    console.error(`Error writing DB to ${filePath}:`, err);
+    try {
+      const fallbackPath = path.resolve('/tmp', 'vaultora_db.json');
+      fs.writeFileSync(fallbackPath, JSON.stringify(db, null, 2), 'utf-8');
+    } catch (fallbackErr) {
+      console.error('Fallback /tmp write failed:', fallbackErr);
+    }
   }
 }
 
@@ -118,12 +192,16 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
 }
 
 function setSessionCookie(res: Response, name: string, value: string, maxAgeMs: number) {
+  const isHttps = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL) || Boolean(process.env.APP_URL?.startsWith('https'));
+  const secureFlag = isHttps ? '; Secure' : '';
   const expires = new Date(Date.now() + maxAgeMs).toUTCString();
-  res.setHeader('Set-Cookie', `${name}=${encodeURIComponent(value)}; Path=/; Expires=${expires}; HttpOnly; SameSite=Lax`);
+  res.setHeader('Set-Cookie', `${name}=${encodeURIComponent(value)}; Path=/; Expires=${expires}; HttpOnly; SameSite=Lax${secureFlag}`);
 }
 
 function clearSessionCookie(res: Response, name: string) {
-  res.setHeader('Set-Cookie', `${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; HttpOnly; SameSite=Lax`);
+  const isProd = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
+  const secureFlag = isProd ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax${secureFlag}`);
 }
 
 const loginAttemptsTracker: Map<string, { count: number; resetAt: number }> = new Map();
@@ -278,6 +356,11 @@ app.get('/api/system/status', (req, res) => {
     minDeposit: db.settings.minDeposit || 5000,
     timestamp: new Date().toISOString()
   });
+});
+
+// Internal test endpoint to verify structured JSON 500 response
+app.get('/api/system/simulate-error', (req, res, next) => {
+  next(new Error('Simulated backend error for verification'));
 });
 
 // --- User Auth ---
@@ -636,7 +719,12 @@ app.post('/api/auth/resend-verification', checkMaintenanceMode, (req, res) => {
 // --- Admin Auth & Bootstrap ---
 app.get('/api/admin/check-bootstrap', (req, res) => {
   const db = readDb();
-  res.json({ bootstrapRequired: db.admins.length === 0 });
+  res.json({
+    bootstrapRequired: db.admins.length === 0,
+    canBootstrap: db.admins.length === 0,
+    adminCount: db.admins.length,
+    superAdminExists: db.admins.some(a => a.role === 'Super Admin' || a.isSuperAdmin)
+  });
 });
 
 app.post('/api/admin/signup', (req, res) => {
@@ -748,6 +836,7 @@ app.post('/api/admin/login', (req, res) => {
   };
   logAudit(db, 'admin', admin.id, 'ADMIN_LOGIN', { email: admin.email });
   writeDb(db);
+  setSessionCookie(res, 'vaultora_admin_session', token, 8 * 3600 * 1000);
 
   const { passwordHash: _, salt: __, ...safeAdmin } = admin;
   res.json({ token, admin: safeAdmin });

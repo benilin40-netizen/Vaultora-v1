@@ -2,7 +2,28 @@ const TOKEN_KEY = 'vaultora_token';
 const ADMIN_TOKEN_KEY = 'vaultora_admin_token';
 
 /**
+ * Base URL resolver for API requests.
+ * Respects VITE_API_URL if configured, otherwise uses relative paths.
+ */
+export function getApiUrl(endpoint: string): string {
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    return endpoint;
+  }
+  const baseUrl = (typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env as any).VITE_API_URL) || '';
+  if (baseUrl) {
+    const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `${cleanBase}${cleanPath}`;
+  }
+  return endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+}
+
+const inFlightRequests = new Map<string, Promise<any>>();
+
+/**
  * Centralized API request utility that safely handles:
+ * - Base URL resolution via getApiUrl
+ * - In-flight GET request deduplication
  * - Setting Accept: application/json and Content-Type: application/json headers
  * - Attaching Bearer tokens when available
  * - Credentials inclusion for secure HTTP-only cookies
@@ -16,73 +37,94 @@ export async function apiRequest<T = any>(
   options: RequestInit = {},
   isAdmin = false
 ): Promise<T> {
+  const finalUrl = getApiUrl(url);
   const token = api.getToken(isAdmin);
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    ...((options.headers as Record<string, string>) || {}),
+  const method = (options.method || 'GET').toUpperCase();
+
+  // Deduplicate identical in-flight GET requests to prevent redundant network bursts
+  const dedupeKey = method === 'GET' ? `${method}:${finalUrl}:${token || ''}` : null;
+  if (dedupeKey && inFlightRequests.has(dedupeKey)) {
+    return inFlightRequests.get(dedupeKey) as Promise<T>;
+  }
+
+  const execute = async (): Promise<T> => {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      ...((options.headers as Record<string, string>) || {}),
+    };
+
+    // Ensure JSON Content-Type for mutation methods if body is a string
+    if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    } else if (!headers['Content-Type'] && method !== 'GET' && method !== 'HEAD') {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    if (token && !headers['Authorization']) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(finalUrl, {
+        ...options,
+        credentials: 'include',
+        headers,
+      });
+    } catch (networkError: any) {
+      throw new Error(
+        `Network connection failed: ${networkError.message || 'Unable to reach the server.'}`
+      );
+    }
+
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    const rawBody = await response.text();
+
+    // If no content returned (e.g. 204 No Content or empty string)
+    if (!rawBody || !rawBody.trim()) {
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}.`);
+      }
+      return {} as T;
+    }
+
+    // If response is NOT JSON (e.g. HTML 404, Vercel routing fallback, plain text error)
+    if (!contentType.includes('application/json')) {
+      const cleanSnippet = rawBody
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160);
+
+      throw new Error(
+        `API returned an unexpected response (${response.status}): ${cleanSnippet || 'Non-JSON response received'}`
+      );
+    }
+
+    let data: any;
+    try {
+      data = JSON.parse(rawBody);
+    } catch {
+      throw new Error('The server returned malformed JSON.');
+    }
+
+    if (!response.ok) {
+      const errorMsg = data.message || data.error || `API request failed with status ${response.status}.`;
+      throw new Error(errorMsg);
+    }
+
+    return data as T;
   };
 
-  // Ensure JSON Content-Type for mutation methods if body is a string
-  if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
-    headers['Content-Type'] = 'application/json';
-  } else if (!headers['Content-Type'] && options.method && options.method !== 'GET' && options.method !== 'HEAD') {
-    headers['Content-Type'] = 'application/json';
-  }
-
-  if (token && !headers['Authorization']) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      ...options,
-      credentials: 'include',
-      headers,
+  if (dedupeKey) {
+    const requestPromise = execute().finally(() => {
+      inFlightRequests.delete(dedupeKey);
     });
-  } catch (networkError: any) {
-    throw new Error(
-      `Network connection failed: ${networkError.message || 'Unable to reach the server.'}`
-    );
+    inFlightRequests.set(dedupeKey, requestPromise);
+    return requestPromise;
   }
 
-  const contentType = (response.headers.get('content-type') || '').toLowerCase();
-  const rawBody = await response.text();
-
-  // If no content returned (e.g. 204 No Content or empty string)
-  if (!rawBody || !rawBody.trim()) {
-    if (!response.ok) {
-      throw new Error(`API request failed with status ${response.status}.`);
-    }
-    return {} as T;
-  }
-
-  // If response is NOT JSON (e.g. HTML 404, Vercel routing fallback, plain text error)
-  if (!contentType.includes('application/json')) {
-    const cleanSnippet = rawBody
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 160);
-
-    throw new Error(
-      `API returned an unexpected response (${response.status}): ${cleanSnippet || 'Non-JSON response received'}`
-    );
-  }
-
-  let data: any;
-  try {
-    data = JSON.parse(rawBody);
-  } catch {
-    throw new Error('The server returned malformed JSON.');
-  }
-
-  if (!response.ok) {
-    const errorMsg = data.message || data.error || `API request failed with status ${response.status}.`;
-    throw new Error(errorMsg);
-  }
-
-  return data as T;
+  return execute();
 }
 
 export const api = {
