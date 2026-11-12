@@ -21,6 +21,16 @@
   "credits": [],
   "auditLogs": [
     {
+      "id": "audit_f456c194-174c-4460-8ac9-70dad727d185",
+      "actorType": "admin",
+      "actorId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "action": "ADMIN_LOGIN",
+      "details": {
+        "email": "benilin40@gmail.com"
+      },
+      "timestamp": "2026-11-12T02:52:42.982Z"
+    },
+    {
       "id": "audit_e973ba22-c021-4c25-b09e-fe06bc83c827",
       "actorType": "admin",
       "actorId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
@@ -374,6 +384,12 @@
       "role": "Super Admin",
       "email": "benilin40@gmail.com",
       "expiresAt": 1794480090693
+    },
+    "48db1178779112e22e82ade406c71d4aa92dc2f3f2e5b5e663123cd267d9279c": {
+      "adminId": "admin_85947695-3717-4581-acbe-b44a89be1bfa",
+      "role": "Super Admin",
+      "email": "benilin40@gmail.com",
+      "expiresAt": 1794480762982
     }
   },
   "passwordResetTokens": [],

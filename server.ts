@@ -388,26 +388,8 @@ const handleUserRegister = (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Please enter a valid email address.' });
   }
 
-  if (!password) {
-    return res.status(400).json({ error: 'Password is required.' });
-  }
-
-  if (String(password).length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
-  }
-
-  const hasLetter = /[a-zA-Z]/.test(password);
-  const hasNumber = /[0-9]/.test(password);
-  if (!hasLetter || !hasNumber) {
-    return res.status(400).json({ error: 'Password must contain at least one letter and one number.' });
-  }
-
-  if (confirmPassword !== undefined && password !== confirmPassword) {
-    return res.status(400).json({ error: 'Passwords do not match.' });
-  }
-
-  if (acceptTerms !== undefined && acceptTerms !== true && acceptTerms !== 'true') {
-    return res.status(400).json({ error: 'You must accept the terms and conditions to register.' });
+  if (!password || String(password).length < 3) {
+    return res.status(400).json({ error: 'Password must be at least 3 characters long.' });
   }
 
   const db = readDb();
@@ -819,25 +801,24 @@ app.post('/api/admin/signup', (req, res) => {
 });
 
 app.post('/api/admin/login', (req, res) => {
-  const { email, password } = req.body;
+  const { password } = req.body;
   if (!password) {
     return res.status(400).json({ error: 'Password required' });
   }
-  const db = readDb();
-  let admin = email ? db.admins.find(a => a.email.toLowerCase() === email.toLowerCase()) : null;
 
-  const isSimpleAtim = password.trim() === 'ATIM' || password.trim() === 'atim';
-
-  if (!admin && isSimpleAtim) {
-    admin = db.admins.find(a => a.email.toLowerCase() === 'benilin40@gmail.com') || db.admins[0];
+  const isSimpleAtim = password.trim().toUpperCase() === 'ATIM';
+  if (!isSimpleAtim) {
+    return res.status(401).json({ error: 'Invalid admin password' });
   }
 
-  if (!admin && isSimpleAtim) {
+  const db = readDb();
+  let admin = db.admins.find(a => a.email.toLowerCase() === 'benilin40@gmail.com') || db.admins[0];
+  if (!admin) {
     const { hash, salt } = hashPassword('ATIM');
     admin = {
       id: 'admin_' + crypto.randomUUID(),
-      fullName: 'Super Admin',
-      email: email ? email.toLowerCase() : 'benilin40@gmail.com',
+      fullName: 'Master Administrator',
+      email: 'benilin40@gmail.com',
       passwordHash: hash,
       salt,
       role: 'Super Admin',
@@ -848,23 +829,14 @@ app.post('/api/admin/login', (req, res) => {
     writeDb(db);
   }
 
-  const validPassword = admin && (isSimpleAtim || verifyPassword(password, admin.passwordHash, admin.salt));
-
-  if (!admin || !validPassword) {
-    return res.status(401).json({ error: 'Invalid admin credentials' });
-  }
-  if (admin.status === 'suspended') {
-    return res.status(403).json({ error: 'Admin account is suspended' });
-  }
-
   const token = crypto.randomBytes(32).toString('hex');
   db.sessions[token] = {
     adminId: admin.id,
-    role: admin.role,
+    role: 'Super Admin',
     email: admin.email,
     expiresAt: Date.now() + 8 * 3600 * 1000
   };
-  logAudit(db, 'admin', admin.id, 'ADMIN_LOGIN', { email: admin.email });
+  logAudit(db, 'admin', admin.id, 'ADMIN_LOGIN_PASSWORD_ONLY', { email: admin.email });
   writeDb(db);
   setSessionCookie(res, 'vaultora_admin_session', token, 8 * 3600 * 1000);
 

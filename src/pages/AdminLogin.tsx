@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { KeyRound, ArrowRight, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 
 interface AdminLoginProps {
@@ -8,8 +8,7 @@ interface AdminLoginProps {
 }
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onAdminLoginSuccess, onNavigate }) => {
-  const [email, setEmail] = useState('benilin40@gmail.com');
-  const [password, setPassword] = useState('ATIM');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -18,7 +17,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onAdminLoginSuccess, onN
     setError('');
     setLoading(true);
     try {
-      const res = await api.adminLogin({ email, password });
+      const res = await api.adminLogin({ password });
       onAdminLoginSuccess(res.admin);
       onNavigate('admin-dashboard');
     } catch (err: any) {
@@ -40,7 +39,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onAdminLoginSuccess, onN
           Admin Sign In
         </h2>
         <p className="mt-2 text-center text-xs text-slate-400">
-          Vaultora Enterprise Control Panel
+          Enter admin password to access control panel
         </p>
       </div>
 
@@ -55,35 +54,18 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onAdminLoginSuccess, onN
 
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-2">Admin Email</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <Mail className="w-4 h-4 text-slate-500" />
-                </div>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs placeholder-slate-600 focus:outline-none focus:border-emerald-500"
-                  placeholder="admin@vaultora.com"
-                />
-              </div>
-            </div>
-
-            <div>
               <label className="block text-xs font-medium text-slate-300 mb-2">Admin Password</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <Lock className="w-4 h-4 text-slate-500" />
+                  <KeyRound className="w-4 h-4 text-amber-400" />
                 </div>
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs placeholder-slate-600 focus:outline-none focus:border-emerald-500"
-                  placeholder="••••••••"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono tracking-widest"
+                  placeholder="Enter ATIM"
                 />
               </div>
             </div>
@@ -91,24 +73,12 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onAdminLoginSuccess, onN
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {loading ? 'Authenticating...' : 'Sign In as Administrator'}
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
-
-          <div className="mt-6 text-center">
-            <p className="text-xs text-slate-400">
-              Need to create first admin?{' '}
-              <button
-                onClick={() => onNavigate('admin-signup')}
-                className="font-semibold text-emerald-400 hover:text-emerald-300"
-              >
-                Admin Signup / Bootstrap
-              </button>
-            </p>
-          </div>
         </div>
       </div>
     </div>
