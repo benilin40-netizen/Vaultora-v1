@@ -1923,7 +1923,13 @@ app.use((err: any, req: Request, res: Response, next: Function) => {
 
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
-  const PORT = 3000;
+  let PORT = 3000;
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const parsed = parseInt(process.argv[portArgIndex + 1], 10);
+    if (!isNaN(parsed)) PORT = parsed;
+  }
+
   const httpServer = http.createServer(app);
 
   // Serve static public assets (favicons, web app manifest, touch icons)
@@ -1973,14 +1979,38 @@ async function startServer() {
     }
   }
 
+  httpServer.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Vaultora] Port ${PORT} already in use. Retrying in 1.5 seconds...`);
+      setTimeout(() => {
+        try {
+          httpServer.close();
+        } catch {}
+        httpServer.listen(PORT, '0.0.0.0');
+      }, 1500);
+    } else {
+      console.error('[Vaultora] Server error:', err);
+    }
+  });
+
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Vaultora full-stack server running on http://0.0.0.0:${PORT} (Currency: UGX, Min Deposit: UGX 5,000)`);
+  });
+
+  process.on('SIGTERM', () => {
+    httpServer.close(() => process.exit(0));
+  });
+  process.on('SIGINT', () => {
+    httpServer.close(() => process.exit(0));
   });
 }
 
 // In local / container / dev mode, start server; on Vercel serverless, app is exported
 if (!process.env.VERCEL) {
-  startServer();
+  startServer().catch((err) => {
+    console.error('[Vaultora] Critical error during server boot:', err);
+    process.exit(1);
+  });
 }
 
 export default app;
