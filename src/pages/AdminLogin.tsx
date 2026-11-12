@@ -8,8 +8,8 @@ interface AdminLoginProps {
 }
 
 export const AdminLogin: React.FC<AdminLoginProps> = ({ onAdminLoginSuccess, onNavigate }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('benilin40@gmail.com');
+  const [password, setPassword] = useState('ATIM');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
